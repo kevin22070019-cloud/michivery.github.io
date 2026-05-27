@@ -3,12 +3,21 @@ const { Pool }   = require('pg');
 const cors       = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt     = require('bcrypt');
+const path       = require('path');
 
 const app  = express();
 const SALT = 10;
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// ── Servir archivos estáticos (HTML, CSS, JS) ──
+app.use(express.static(__dirname));
+
+// Ruta principal — sirve el index.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 /* ══════════════════════════════════════════════════════════════
    CONEXIÓN A POSTGRESQL
@@ -65,7 +74,6 @@ app.post('/loginCliente', async (req, res) => {
     }
 });
 
-// Lista de clientes para el admin
 app.get('/clientes', async (req, res) => {
     try {
         const r = await pool.query('SELECT id, nombre, telefono, direccion, correo FROM clientes ORDER BY id DESC');
@@ -168,8 +176,6 @@ app.put('/pedido/:id', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    TICKETS
 ══════════════════════════════════════════════════════════════ */
-
-// Cliente abre un ticket
 app.post('/ticket', async (req, res) => {
     const { cliente_id, cliente_nombre, cliente_correo, asunto, mensaje } = req.body;
     if (!cliente_id || !asunto || !mensaje)
@@ -186,7 +192,6 @@ app.post('/ticket', async (req, res) => {
     }
 });
 
-// Admin obtiene todos los tickets
 app.get('/tickets', async (req, res) => {
     try {
         const r = await pool.query('SELECT * FROM tickets ORDER BY fecha DESC');
@@ -197,7 +202,6 @@ app.get('/tickets', async (req, res) => {
     }
 });
 
-// Admin responde y actualiza estado de ticket
 app.put('/ticket/:id', async (req, res) => {
     const { id }                  = req.params;
     const { respuesta, estado }   = req.body;
@@ -218,8 +222,6 @@ app.put('/ticket/:id', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    PRECIOS
 ══════════════════════════════════════════════════════════════ */
-
-// Obtener precios desde la BD
 app.get('/precios', async (req, res) => {
     try {
         const r = await pool.query('SELECT * FROM precios ORDER BY id');
@@ -230,7 +232,6 @@ app.get('/precios', async (req, res) => {
     }
 });
 
-// Admin guarda precios en la BD
 app.put('/precios', async (req, res) => {
     const { precios } = req.body;
     if (!precios || !Array.isArray(precios))
@@ -247,7 +248,7 @@ app.put('/precios', async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   DASHBOARD — datos reales
+   DASHBOARD
 ══════════════════════════════════════════════════════════════ */
 app.get('/dashboard', async (req, res) => {
     try {
@@ -270,7 +271,7 @@ app.get('/dashboard', async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ARRANCAR SERVIDOR  ← siempre al final
+   ARRANCAR SERVIDOR
 ══════════════════════════════════════════════════════════════ */
 app.listen(3000, () => {
     console.log('Servidor funcionando en puerto 3000');
