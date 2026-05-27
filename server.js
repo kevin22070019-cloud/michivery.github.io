@@ -14,11 +14,9 @@ app.use(bodyParser.json());
    CONEXIÓN A POSTGRESQL
 ══════════════════════════════════════════════════════════════ */
 const pool = new Pool({
-    user:     'postgres',
-    host:     'localhost',
-    database: 'tablespace_db',
-    password: 'root',
-    port:     5432,
+    connectionString: process.env.DATABASE_URL ||
+        'postgresql://michivery_db_user:vDxyITAgjN9udkpBNUmPaaeo7iUrCPBc@dpg-d8b7s43eo5us73amdsog-a.frankfurt-postgres.render.com/michivery_db',
+    ssl: { rejectUnauthorized: false }
 });
 
 /* ══════════════════════════════════════════════════════════════
