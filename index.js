@@ -5,6 +5,8 @@ console.log('Happy developing ✨');
    Sobrescribe las funciones del HTML para usar el backend real
 ══════════════════════════════════════════════════════════════ */
 
+const BASE = 'https://michivery.onrender.com';
+
 // ── REGISTRO CLIENTE ──────────────────────────────────────────
 async function registerCliente() {
     const nombre     = document.getElementById('cliNombre').value.trim();
@@ -23,7 +25,7 @@ async function registerCliente() {
     }
 
     try {
-        const respuesta = await fetch('http://localhost:3000/registrar', {
+        const respuesta = await fetch(BASE + '/registrar', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ nombre, telefono, direccion, correo, contrasena })
@@ -63,7 +65,7 @@ async function registerAdmin() {
     }
 
     try {
-        const respuesta = await fetch('http://localhost:3000/registrarAdmin', {
+        const respuesta = await fetch(BASE + '/registrarAdmin', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ nombre, telefono, correo, contrasena })
@@ -98,8 +100,8 @@ async function login() {
 
     const esAdmin = loginRoleSel === 'admin';
     const url     = esAdmin
-        ? 'http://localhost:3000/loginAdmin'
-        : 'http://localhost:3000/loginCliente';
+        ? BASE + '/loginAdmin'
+        : BASE + '/loginCliente';
 
     try {
         const respuesta = await fetch(url, {
@@ -138,7 +140,7 @@ async function login() {
     }
 }
 
-// ── CONFIRMAR PEDIDO — envía al servidor y queda en espera ────
+// ── CONFIRMAR PEDIDO ──────────────────────────────────────────
 async function confirmarPedidoServidor() {
     if (cart.length === 0) {
         showMsg('orderMsg', 'warning', '⚠️ Agrega al menos un producto antes de confirmar');
@@ -149,7 +151,7 @@ async function confirmarPedidoServidor() {
 
     showModal('Confirmar pedido', '¿Deseas enviar tu pedido? Total: $' + total, async () => {
         try {
-            const respuesta = await fetch('http://localhost:3000/pedido', {
+            const respuesta = await fetch(BASE + '/pedido', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -181,10 +183,9 @@ async function confirmarPedidoServidor() {
 // ── DASHBOARD REAL ────────────────────────────────────────────
 async function refreshDashboard() {
     try {
-        const respuesta = await fetch('http://localhost:3000/dashboard');
+        const respuesta = await fetch(BASE + '/dashboard');
         const datos     = await respuesta.json();
 
-        // Estadísticas
         const e1 = document.getElementById('statClientes');
         const e2 = document.getElementById('statPendientes');
         const e3 = document.getElementById('statActivos');
@@ -192,7 +193,6 @@ async function refreshDashboard() {
         if (e2) e2.textContent = datos.pedidosPendientes;
         if (e3) e3.textContent = datos.pedidosActivos;
 
-        // Tabla de actividad reciente
         const tbody = document.getElementById('bodyActividad');
         if (tbody) {
             if (datos.ultimosPedidos.length === 0) {
@@ -233,7 +233,7 @@ async function refreshDashboard() {
 // ── PEDIDOS DEL ADMIN ─────────────────────────────────────────
 async function cargarPedidosAdmin() {
     try {
-        const respuesta = await fetch('http://localhost:3000/pedidos');
+        const respuesta = await fetch(BASE + '/pedidos');
         const datos     = await respuesta.json();
         const tbody     = document.getElementById('bodyPedidos');
         if (!tbody) return;
@@ -290,7 +290,7 @@ async function cargarPedidosAdmin() {
 
 async function actualizarPedido(id, estado) {
     try {
-        await fetch('http://localhost:3000/pedido/' + id, {
+        await fetch(BASE + '/pedido/' + id, {
             method:  'PUT',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ estado })
@@ -299,5 +299,56 @@ async function actualizarPedido(id, estado) {
         refreshDashboard();
     } catch (error) {
         console.error('actualizarPedido:', error);
+    }
+}
+
+// ── CUENTAS ADMIN ─────────────────────────────────────────────
+async function cargarCuentasAdmin() {
+    const tbody = document.getElementById('bodyCuentas');
+    try {
+        const respuesta = await fetch(BASE + '/clientes');
+        const datos     = await respuesta.json();
+        if (datos.clientes.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:20px;">No hay clientes registrados</td></tr>';
+            return;
+        }
+        tbody.innerHTML = datos.clientes.map(c => `
+        <tr>
+            <td>${c.nombre}</td>
+            <td>${c.correo}</td>
+            <td>${c.telefono}</td>
+            <td>${c.direccion}</td>
+        </tr>`).join('');
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--red);padding:20px;">Error al cargar clientes</td></tr>';
+    }
+}
+
+// ── UBICACIONES ───────────────────────────────────────────────
+async function cargarUbicaciones() {
+    const tbody = document.getElementById('bodyUbicaciones');
+    try {
+        const respuesta  = await fetch(BASE + '/pedidos');
+        const datos      = await respuesta.json();
+        const enTransito = datos.pedidos.filter(p => p.estado === 'en-transito' || p.estado === 'confirmado');
+        if (enTransito.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px;">No hay pedidos en camino</td></tr>';
+            return;
+        }
+        tbody.innerHTML = enTransito.map(p => `
+        <tr>
+            <td><strong>#${p.id}</strong></td>
+            <td>${p.cliente_nombre || '—'}</td>
+            <td><strong>$${p.total}</strong></td>
+            <td><span class="badge ${p.estado === 'en-transito' ? 'en-transito' : 'activo'}">${p.estado === 'en-transito' ? 'En tránsito' : 'Confirmado'}</span></td>
+            <td>
+                ${p.estado === 'confirmado'
+            ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar</button>`
+            : `<button class="tbl-btn amber"  onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
+        }
+            </td>
+        </tr>`).join('');
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:20px;">Error al cargar</td></tr>';
     }
 }
