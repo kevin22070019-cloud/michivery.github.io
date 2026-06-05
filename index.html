@@ -128,6 +128,7 @@
         /* ── PANTALLA ESPERANDO ── */
         .waiting-icon { font-size: 72px; text-align: center; margin: 24px 0 12px; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+        @keyframes spin   { to { transform: rotate(360deg); } }
 
         /* ── MAPA ── */
         .map { width: 100%; height: 300px; border-radius: 10px; overflow: hidden; background: #e5e7eb; }
@@ -196,9 +197,6 @@
         .modal-box h3 { margin: 0 0 10px; }
         .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
         .modal-actions button { flex: 1; }
-
-
-        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -381,7 +379,7 @@
     <!-- ══ RECUPERAR CONTRASEÑA ══ -->
     <div id="recover" class="screen">
         <h2>Recuperar contraseña</h2>
-        <p style="color:gray; font-size:14px;">Te enviaremos un enlace a tu correo electrónico.</p>
+        <p style="color:gray; font-size:14px;">Ingresa tu correo y te enviaremos un enlace real para restablecer tu contraseña.</p>
         <div class="form-group">
             <label class="form-label" for="recoverEmail">Correo electrónico <span class="req">*</span></label>
             <input id="recoverEmail" class="input" type="email" placeholder="ejemplo@correo.com">
@@ -389,7 +387,36 @@
         <div id="recoverMsg" class="msg"></div>
         <div class="btn-row">
             <button class="btn btn-cancel" onclick="goTo('login')">Cancelar</button>
-            <button class="btn" onclick="recover()">Enviar enlace</button>
+            <button class="btn" id="btnRecover" onclick="recover()">Enviar enlace</button>
+        </div>
+    </div>
+
+    <!-- ══ RESTABLECER CONTRASEÑA ══ -->
+    <div id="resetPass" class="screen">
+        <h2>Nueva contraseña</h2>
+        <p style="color:gray; font-size:14px;">Ingresa tu nueva contraseña.</p>
+        <div class="form-group">
+            <label class="form-label" for="resetToken">Token de recuperación <span class="req">*</span></label>
+            <input id="resetToken" class="input" type="text" placeholder="Pega aquí el token recibido por correo">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="resetNewPass">Nueva contraseña <span class="req">*</span></label>
+            <div class="pass-box">
+                <input id="resetNewPass" type="password" class="input" placeholder="Mínimo 8 caracteres" oninput="validarEnVivoReset()">
+                <span class="eye" onclick="togglePass('resetNewPass')">👁️</span>
+            </div>
+        </div>
+        <div class="rules">
+            <div class="rule fail" id="rr-len">✦ Mínimo 8 caracteres</div>
+            <div class="rule fail" id="rr-upper">✦ 1 letra mayúscula</div>
+            <div class="rule fail" id="rr-lower">✦ 1 letra minúscula</div>
+            <div class="rule fail" id="rr-num">✦ 1 número</div>
+            <div class="rule fail" id="rr-sym">✦ 1 símbolo (!@#$...)</div>
+        </div>
+        <div id="resetMsg" class="msg"></div>
+        <div class="btn-row">
+            <button class="btn btn-cancel" onclick="goTo('login')">Cancelar</button>
+            <button class="btn" onclick="resetPassword()">Cambiar contraseña</button>
         </div>
     </div>
 
@@ -414,7 +441,6 @@
         </div>
     </div>
 
-    <!-- ══ ESPERANDO CONFIRMACIÓN DEL ADMIN ══ -->
     <!-- ══ ESPERANDO CONFIRMACIÓN DEL ADMIN ══ -->
     <div id="esperando" class="screen" style="text-align:center;">
         <div class="waiting-icon">⏳</div>
@@ -648,6 +674,13 @@
         renderMenu();
         renderPrecios();
         document.addEventListener('keydown', handleGlobalKeys);
+
+        // Si la URL tiene ?token=xxx abrir pantalla de reset
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('token')) {
+            document.getElementById('resetToken').value = params.get('token');
+            goTo('resetPass');
+        }
     };
 
     /* ══════════════════════════════════════════════════════════════
@@ -737,16 +770,16 @@
     function goTo(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('screen-active'));
         document.getElementById(id).classList.add('screen-active');
-        const loginScreens = ['login', 'registerCliente', 'registerAdmin', 'recover'];
+        const loginScreens = ['login', 'registerCliente', 'registerAdmin', 'recover', 'resetPass'];
         const loginHdr = document.getElementById('loginHeader');
         if (loginHdr) loginHdr.style.display = loginScreens.includes(id) ? 'block' : 'none';
-        if (id === 'products')        renderMenu();
-        if (id === 'order')           renderOrder();
-        if (id === 'adminDashboard')  refreshDashboard();
-        if (id === 'adminPedidos')    cargarPedidosAdmin();
-        if (id === 'adminCuentas')    cargarCuentasAdmin();
+        if (id === 'products')         renderMenu();
+        if (id === 'order')            renderOrder();
+        if (id === 'adminDashboard')   refreshDashboard();
+        if (id === 'adminPedidos')     cargarPedidosAdmin();
+        if (id === 'adminCuentas')     cargarCuentasAdmin();
         if (id === 'adminUbicaciones') cargarUbicaciones();
-        if (id === 'adminPrecios')    renderPrecios();
+        if (id === 'adminPrecios')     renderPrecios();
     }
 
     /* ══════════════════════════════════════════════════════════════
@@ -789,16 +822,7 @@
     }
     function validarEnVivoCliente() { actualizarReglas('rc', document.getElementById('newPassCliente').value); hideMsg('regCliMsg'); }
     function validarEnVivoAdmin()   { actualizarReglas('ra', document.getElementById('newPassAdmin').value);   hideMsg('regAdminMsg'); }
-
-    /* ══════════════════════════════════════════════════════════════
-       RECUPERAR CONTRASEÑA
-    ══════════════════════════════════════════════════════════════ */
-    function recover() {
-        const email = document.getElementById('recoverEmail').value.trim();
-        if (!email) { showMsg('recoverMsg', 'warning', '⚠️ Ingresa tu correo electrónico'); return; }
-        showMsg('recoverMsg', 'success', '✅ Enlace enviado a ' + email + ' (simulado)');
-        setTimeout(() => goTo('login'), 2000);
-    }
+    function validarEnVivoReset()   { actualizarReglas('rr', document.getElementById('resetNewPass').value);   hideMsg('resetMsg'); }
 
     /* ══════════════════════════════════════════════════════════════
        CERRAR SESIÓN

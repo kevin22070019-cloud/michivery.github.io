@@ -120,6 +120,76 @@ async function login() {
     }
 }
 
+// ── RECUPERAR CONTRASEÑA (REAL) ───────────────────────────────
+async function recover() {
+    const correo = document.getElementById('recoverEmail').value.trim();
+    if (!correo) {
+        showMsg('recoverMsg', 'warning', '⚠️ Ingresa tu correo electrónico');
+        return;
+    }
+
+    const btn = document.getElementById('btnRecover');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    try {
+        const respuesta = await fetch(BASE + '/recuperar-contrasena', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ correo })
+        });
+        const resultado = await respuesta.json();
+
+        if (respuesta.ok) {
+            showMsg('recoverMsg', 'success', '✅ ' + resultado.mensaje);
+            document.getElementById('recoverEmail').value = '';
+            setTimeout(() => goTo('login'), 3000);
+        } else {
+            showMsg('recoverMsg', 'error', '❌ ' + resultado.mensaje);
+        }
+    } catch (error) {
+        showMsg('recoverMsg', 'error', '❌ Error al conectar con el servidor');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar enlace';
+    }
+}
+
+// ── RESTABLECER CONTRASEÑA (REAL) ─────────────────────────────
+async function resetPassword() {
+    const token      = document.getElementById('resetToken').value.trim();
+    const contrasena = document.getElementById('resetNewPass').value;
+
+    if (!token || !contrasena) {
+        showMsg('resetMsg', 'error', '❌ Completa todos los campos');
+        return;
+    }
+    if (!validarPass(contrasena)) {
+        showMsg('resetMsg', 'error', '❌ La contraseña no cumple los requisitos de seguridad');
+        return;
+    }
+
+    try {
+        const respuesta = await fetch(BASE + '/restablecer-contrasena', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ token, contrasena })
+        });
+        const resultado = await respuesta.json();
+
+        if (respuesta.ok) {
+            showMsg('resetMsg', 'success', '✅ ' + resultado.mensaje);
+            document.getElementById('resetToken').value   = '';
+            document.getElementById('resetNewPass').value = '';
+            setTimeout(() => goTo('login'), 2000);
+        } else {
+            showMsg('resetMsg', 'error', '❌ ' + resultado.mensaje);
+        }
+    } catch (error) {
+        showMsg('resetMsg', 'error', '❌ Error al conectar con el servidor');
+    }
+}
+
 // ── CONFIRMAR PEDIDO ──────────────────────────────────────────
 async function confirmarPedidoServidor() {
     if (cart.length === 0) {
@@ -188,7 +258,7 @@ async function verificarEstadoPedido() {
             mostrarPedidoCancelado();
         } else if (estado === 'en-transito') {
             detenerSeguimiento();
-            goTo('tracking');
+            mostrarPedidoEnviado();
         } else if (estado === 'entregado') {
             detenerSeguimiento();
             mostrarPedidoEntregado();
@@ -198,6 +268,7 @@ async function verificarEstadoPedido() {
     }
 }
 
+// ── PANTALLAS DE ESTADO ───────────────────────────────────────
 function mostrarPedidoConfirmado() {
     const pantalla = document.getElementById('esperando');
     pantalla.innerHTML = `
@@ -222,6 +293,31 @@ function mostrarPedidoCancelado() {
                 Tu pedido fue cancelado por el administrador.
             </div>
             <button class="btn btn-cancel" onclick="goTo('products')" style="margin-top:20px;">🏠 Volver al menú</button>
+        </div>`;
+}
+
+// ── Pantalla final: "Enviado a domicilio" ─────────────────────
+function mostrarPedidoEnviado() {
+    const pantalla = document.getElementById('esperando');
+    pantalla.innerHTML = `
+        <div style="text-align:center; padding: 30px 20px;">
+            <div style="font-size:80px; margin-bottom:16px;">🛵</div>
+            <h2 style="color: var(--blue); margin-bottom:8px;">¡Pedido enviado a domicilio!</h2>
+            <div class="msg info show" style="justify-content:center; margin: 16px 0;">
+                🚀 Tu pedido está en camino. ¡Pronto llegará a tu puerta!
+            </div>
+            <p style="color:gray; font-size:14px; margin-bottom:24px;">
+                Tiempo estimado de entrega: <strong>30 – 45 minutos</strong>
+            </p>
+            <div style="background:var(--green-light); border-radius:12px; padding:16px; margin-bottom:24px; border:1px solid #bbf7d0;">
+                <p style="margin:0; font-size:13px; color:var(--green); font-weight:600;">
+                    ✅ Tu pedido ha sido entregado al repartidor.<br>
+                    No es necesario hacer nada más. ¡Gracias por tu compra en MICHIVERY!
+                </p>
+            </div>
+            <button class="btn" onclick="goTo('products')" style="max-width:300px; margin:auto;">
+                🏠 Volver al menú
+            </button>
         </div>`;
 }
 
@@ -285,18 +381,24 @@ async function cargarPedidosAdmin() {
         }
         tbody.innerHTML = datos.pedidos.map(p => {
             const items   = JSON.parse(p.items || '[]');
-            const resumen = items.map(i => i.name + ' ×' + i.qty).join(', ');
+            const resumen = items.map(i => i.name + ' x' + i.qty).join(', ');
             const fecha   = new Date(p.fecha).toLocaleString('es-MX');
             const badgeClass = { 'pendiente':'pendiente','confirmado':'activo','en-transito':'en-transito','entregado':'entregado','cancelado':'cancelado' }[p.estado] || 'pendiente';
             const badgeText  = { 'pendiente':'Pendiente','confirmado':'Confirmado','en-transito':'En tránsito','entregado':'Entregado','cancelado':'Cancelado' }[p.estado] || p.estado;
-            const botones = p.estado === 'pendiente'
-                ? `<button class="tbl-btn green" onclick="actualizarPedido(${p.id},'confirmado')">✅ Confirmar</button>
-                   <button class="tbl-btn red"   onclick="actualizarPedido(${p.id},'cancelado')">✖ Cancelar</button>`
-                : p.estado === 'confirmado'
-                    ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar</button>`
-                    : p.estado === 'en-transito'
-                        ? `<button class="tbl-btn amber" onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
-                        : `<span style="font-size:12px;color:#9ca3af;">Finalizado</span>`;
+
+            let botones = '';
+            if (p.estado === 'pendiente') {
+                botones = `
+                    <button class="tbl-btn green" onclick="actualizarPedido(${p.id},'confirmado')">✅ Confirmar</button>
+                    <button class="tbl-btn red"   onclick="actualizarPedido(${p.id},'cancelado')">✖ Cancelar</button>`;
+            } else if (p.estado === 'confirmado') {
+                botones = `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar a domicilio</button>`;
+            } else if (p.estado === 'en-transito') {
+                botones = `<button class="tbl-btn amber" onclick="actualizarPedido(${p.id},'entregado')">📦 Marcar entregado</button>`;
+            } else {
+                botones = `<span style="font-size:12px;color:#9ca3af;">Finalizado</span>`;
+            }
+
             return `<tr>
                 <td><strong>#${p.id}</strong></td>
                 <td>${p.cliente_nombre || '—'}<br><span style="font-size:11px;color:#9ca3af;">${p.cliente_correo || ''}</span></td>
@@ -321,6 +423,10 @@ async function actualizarPedido(id, estado) {
         });
         cargarPedidosAdmin();
         refreshDashboard();
+        const ubScreen = document.getElementById('adminUbicaciones');
+        if (ubScreen && ubScreen.classList.contains('screen-active')) {
+            cargarUbicaciones();
+        }
     } catch (error) {
         console.error('actualizarPedido:', error);
     }
@@ -366,8 +472,8 @@ async function cargarUbicaciones() {
             <td><strong>$${p.total}</strong></td>
             <td><span class="badge ${p.estado === 'en-transito' ? 'en-transito' : 'activo'}">${p.estado === 'en-transito' ? 'En tránsito' : 'Confirmado'}</span></td>
             <td>${p.estado === 'confirmado'
-            ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar</button>`
-            : `<button class="tbl-btn amber"  onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
+            ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar a domicilio</button>`
+            : `<button class="tbl-btn amber"  onclick="actualizarPedido(${p.id},'entregado')">📦 Marcar entregado</button>`
         }</td>
         </tr>`).join('');
     } catch (error) {

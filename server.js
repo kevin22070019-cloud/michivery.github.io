@@ -4,13 +4,14 @@ const cors       = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt     = require('bcrypt');
 const path       = require('path');
+const nodemailer = require('nodemailer');
+const crypto     = require('crypto');
 
 const app  = express();
 const SALT = 10;
 
 app.use(cors());
 app.use(bodyParser.json());
-
 app.use(express.static(__dirname));
 
 app.get('/', (req, res) => {
@@ -21,6 +22,17 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL ||
         'postgresql://michivery_db_user:vDxyITAgjN9udkpBNUmPaaeo7iUrCPBc@dpg-d8b7s43eo5us73amdsog-a.frankfurt-postgres.render.com/michivery_db',
     ssl: { rejectUnauthorized: false }
+});
+
+// ── Configurar nodemailer ──────────────────────────────────────
+// Usa las variables de entorno EMAIL_USER y EMAIL_PASS en Render.
+// Ejemplo con Gmail: activa "Contraseñas de aplicación" en tu cuenta Google.
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,   // ej: michivery@gmail.com
+        pass: process.env.EMAIL_PASS    // contraseña de aplicación Gmail
+    }
 });
 
 /* ══ CLIENTES ══ */
@@ -74,6 +86,85 @@ app.get('/clientes', async (req, res) => {
     } catch (error) {
         console.error('GET /clientes:', error.message);
         res.status(500).json({ mensaje: 'Error al obtener clientes' });
+    }
+});
+
+/* ══ RECUPERAR CONTRASEÑA ══ */
+
+// PASO 1 — El cliente pide el enlace de recuperación
+app.post('/recuperar-contrasena', async (req, res) => {
+    const { correo } = req.body;
+    if (!correo) return res.status(400).json({ mensaje: 'Correo requerido' });
+
+    try {
+        const r = await pool.query('SELECT id FROM clientes WHERE correo = $1', [correo]);
+        // Respuesta genérica para no revelar si el correo existe
+        if (r.rows.length === 0) {
+            return res.json({ mensaje: 'Si ese correo está registrado, recibirás un enlace en breve.' });
+        }
+
+        const token   = crypto.randomBytes(32).toString('hex');
+        const expira  = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+        // Guarda el token en la BD (necesitas la columna reset_token y reset_expira en clientes)
+        await pool.query(
+            'UPDATE clientes SET reset_token = $1, reset_expira = $2 WHERE correo = $3',
+            [token, expira, correo]
+        );
+
+        // URL de tu app en Render (ajusta si tienes dominio propio)
+        const urlApp  = process.env.APP_URL || 'https://michivery.onrender.com';
+        const enlace  = `${urlApp}/?token=${token}`;
+
+        await transporter.sendMail({
+            from:    `"MICHIVERY! 🐱" <${process.env.EMAIL_USER}>`,
+            to:      correo,
+            subject: 'Recupera tu contraseña — MICHIVERY!',
+            html: `
+                <div style="font-family:sans-serif; max-width:480px; margin:auto; padding:24px; border:1px solid #e5e7eb; border-radius:12px;">
+                    <h2 style="color:#16A34A;">MICHIVERY! ®</h2>
+                    <p>Hola, recibimos una solicitud para restablecer tu contraseña.</p>
+                    <p>Haz clic en el botón para crear una nueva contraseña. El enlace es válido por <strong>1 hora</strong>.</p>
+                    <a href="${enlace}"
+                       style="display:inline-block; margin:16px 0; padding:12px 24px; background:#16A34A; color:white; border-radius:8px; text-decoration:none; font-weight:600;">
+                        Restablecer contraseña
+                    </a>
+                    <p style="color:#9ca3af; font-size:12px;">Si no solicitaste este cambio, ignora este correo.</p>
+                    <p style="color:#9ca3af; font-size:12px;">O copia este enlace en tu navegador:<br>${enlace}</p>
+                </div>`
+        });
+
+        res.json({ mensaje: 'Se envió un enlace de recuperación a tu correo. Revisa tu bandeja de entrada.' });
+    } catch (error) {
+        console.error('POST /recuperar-contrasena:', error.message);
+        res.status(500).json({ mensaje: 'Error al enviar el correo. Intenta más tarde.' });
+    }
+});
+
+// PASO 2 — El cliente usa el token para poner su nueva contraseña
+app.post('/restablecer-contrasena', async (req, res) => {
+    const { token, contrasena } = req.body;
+    if (!token || !contrasena) return res.status(400).json({ mensaje: 'Token y contraseña requeridos' });
+
+    try {
+        const r = await pool.query(
+            'SELECT id FROM clientes WHERE reset_token = $1 AND reset_expira > NOW()',
+            [token]
+        );
+        if (r.rows.length === 0) {
+            return res.status(400).json({ mensaje: 'El enlace no es válido o ya expiró. Solicita uno nuevo.' });
+        }
+
+        const hash = await bcrypt.hash(contrasena, SALT);
+        await pool.query(
+            'UPDATE clientes SET contrasena = $1, reset_token = NULL, reset_expira = NULL WHERE reset_token = $2',
+            [hash, token]
+        );
+
+        res.json({ mensaje: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.' });
+    } catch (error) {
+        console.error('POST /restablecer-contrasena:', error.message);
+        res.status(500).json({ mensaje: 'Error al restablecer la contraseña' });
     }
 });
 
@@ -148,7 +239,6 @@ app.get('/pedidos', async (req, res) => {
     }
 });
 
-// ── NUEVA RUTA: estado del último pedido de un cliente ──
 app.get('/pedido/cliente/:cliente_id', async (req, res) => {
     const { cliente_id } = req.params;
     try {
