@@ -1,11 +1,10 @@
 console.log('Happy developing ✨');
 
-/* ══════════════════════════════════════════════════════════════
-   index.js — Conecta el HTML con el servidor
-   Sobrescribe las funciones del HTML para usar el backend real
-══════════════════════════════════════════════════════════════ */
-
 const BASE = 'https://michivery.onrender.com';
+
+// Variable para guardar el intervalo de seguimiento
+let intervaloSeguimiento = null;
+let pedidoActivoId       = null;
 
 // ── REGISTRO CLIENTE ──────────────────────────────────────────
 async function registerCliente() {
@@ -23,16 +22,13 @@ async function registerCliente() {
         showMsg('regCliMsg', 'error', '❌ La contraseña no cumple los requisitos');
         return;
     }
-
     try {
         const respuesta = await fetch(BASE + '/registrar', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ nombre, telefono, direccion, correo, contrasena })
         });
-
         const resultado = await respuesta.json();
-
         if (respuesta.ok) {
             showMsg('regCliMsg', 'success', '✅ ' + resultado.mensaje);
             ['cliNombre', 'cliTelefono', 'cliDireccion', 'newEmailCliente', 'newPassCliente']
@@ -41,9 +37,7 @@ async function registerCliente() {
         } else {
             showMsg('regCliMsg', 'error', '❌ ' + resultado.mensaje);
         }
-
     } catch (error) {
-        console.error('registerCliente:', error);
         showMsg('regCliMsg', 'error', '❌ Error al conectar con el servidor');
     }
 }
@@ -63,16 +57,13 @@ async function registerAdmin() {
         showMsg('regAdminMsg', 'error', '❌ La contraseña no cumple los requisitos');
         return;
     }
-
     try {
         const respuesta = await fetch(BASE + '/registrarAdmin', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ nombre, telefono, correo, contrasena })
         });
-
         const resultado = await respuesta.json();
-
         if (respuesta.ok) {
             showMsg('regAdminMsg', 'success', '✅ ' + resultado.mensaje);
             ['adminNombre', 'adminTelefono', 'newEmailAdmin', 'newPassAdmin']
@@ -81,9 +72,7 @@ async function registerAdmin() {
         } else {
             showMsg('regAdminMsg', 'error', '❌ ' + resultado.mensaje);
         }
-
     } catch (error) {
-        console.error('registerAdmin:', error);
         showMsg('regAdminMsg', 'error', '❌ Error al conectar con el servidor');
     }
 }
@@ -99,9 +88,7 @@ async function login() {
     }
 
     const esAdmin = loginRoleSel === 'admin';
-    const url     = esAdmin
-        ? BASE + '/loginAdmin'
-        : BASE + '/loginCliente';
+    const url     = esAdmin ? BASE + '/loginAdmin' : BASE + '/loginCliente';
 
     try {
         const respuesta = await fetch(url, {
@@ -109,19 +96,15 @@ async function login() {
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ correo, contrasena })
         });
-
         const resultado = await respuesta.json();
 
         if (resultado.success) {
             sessionUser = resultado.usuario || { correo };
             sessionRole = esAdmin ? 'admin' : 'cliente';
-
             setSidebarForRole(sessionRole, correo);
             setHeaderForRole(sessionRole);
-
             document.getElementById('loginEmail').value = '';
             document.getElementById('loginPass').value  = '';
-
             if (esAdmin) {
                 registros = loadRegistros();
                 goTo('adminDashboard');
@@ -129,13 +112,10 @@ async function login() {
                 cart = [];
                 goTo('products');
             }
-
         } else {
             showMsg('loginMsg', 'error', '❌ ' + (resultado.mensaje || 'Credenciales incorrectas'));
         }
-
     } catch (error) {
-        console.error('login:', error);
         showMsg('loginMsg', 'error', '❌ Error al conectar con el servidor');
     }
 }
@@ -155,29 +135,107 @@ async function confirmarPedidoServidor() {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    cliente_id:      sessionUser.id,
-                    cliente_nombre:  sessionUser.nombre,
-                    cliente_correo:  sessionUser.correo,
-                    items:           cart,
-                    total:           total
+                    cliente_id:     sessionUser.id,
+                    cliente_nombre: sessionUser.nombre,
+                    cliente_correo: sessionUser.correo,
+                    items:          cart,
+                    total:          total
                 })
             });
-
             const resultado = await respuesta.json();
-
             if (respuesta.ok) {
+                pedidoActivoId = resultado.pedido_id;
                 cart = [];
                 updateCartCount();
                 goTo('esperando');
+                iniciarSeguimiento();
             } else {
                 showMsg('orderMsg', 'error', '❌ ' + resultado.mensaje);
             }
-
         } catch (error) {
-            console.error('confirmarPedido:', error);
             showMsg('orderMsg', 'error', '❌ Error al conectar con el servidor');
         }
     });
+}
+
+// ── SEGUIMIENTO AUTOMÁTICO ────────────────────────────────────
+function iniciarSeguimiento() {
+    if (intervaloSeguimiento) clearInterval(intervaloSeguimiento);
+    intervaloSeguimiento = setInterval(verificarEstadoPedido, 5000);
+}
+
+function detenerSeguimiento() {
+    if (intervaloSeguimiento) {
+        clearInterval(intervaloSeguimiento);
+        intervaloSeguimiento = null;
+    }
+}
+
+async function verificarEstadoPedido() {
+    if (!sessionUser || !sessionUser.id) return;
+    try {
+        const respuesta = await fetch(BASE + '/pedido/cliente/' + sessionUser.id);
+        const datos     = await respuesta.json();
+        if (!datos.pedido) return;
+
+        const estado = datos.pedido.estado;
+
+        if (estado === 'confirmado') {
+            detenerSeguimiento();
+            mostrarPedidoConfirmado();
+        } else if (estado === 'cancelado') {
+            detenerSeguimiento();
+            mostrarPedidoCancelado();
+        } else if (estado === 'en-transito') {
+            detenerSeguimiento();
+            goTo('tracking');
+        } else if (estado === 'entregado') {
+            detenerSeguimiento();
+            mostrarPedidoEntregado();
+        }
+    } catch (error) {
+        console.error('verificarEstadoPedido:', error);
+    }
+}
+
+function mostrarPedidoConfirmado() {
+    const pantalla = document.getElementById('esperando');
+    pantalla.innerHTML = `
+        <div style="text-align:center; padding: 20px;">
+            <div style="font-size:72px; margin-bottom:16px;">✅</div>
+            <h2 style="color: var(--green);">¡Pedido confirmado!</h2>
+            <div class="msg success show" style="justify-content:center; margin: 16px 0;">
+                🎉 El administrador confirmó tu pedido. ¡Ya está en preparación!
+            </div>
+            <p style="color:gray; font-size:14px;">En breve será enviado a tu dirección.</p>
+            <button class="btn" onclick="goTo('products')" style="margin-top:20px;">🏠 Volver al menú</button>
+        </div>`;
+}
+
+function mostrarPedidoCancelado() {
+    const pantalla = document.getElementById('esperando');
+    pantalla.innerHTML = `
+        <div style="text-align:center; padding: 20px;">
+            <div style="font-size:72px; margin-bottom:16px;">❌</div>
+            <h2 style="color: var(--red);">Pedido cancelado</h2>
+            <div class="msg error show" style="justify-content:center; margin: 16px 0;">
+                Tu pedido fue cancelado por el administrador.
+            </div>
+            <button class="btn btn-cancel" onclick="goTo('products')" style="margin-top:20px;">🏠 Volver al menú</button>
+        </div>`;
+}
+
+function mostrarPedidoEntregado() {
+    const pantalla = document.getElementById('esperando');
+    pantalla.innerHTML = `
+        <div style="text-align:center; padding: 20px;">
+            <div style="font-size:72px; margin-bottom:16px;">📦</div>
+            <h2 style="color: var(--green);">¡Pedido entregado!</h2>
+            <div class="msg success show" style="justify-content:center; margin: 16px 0;">
+                Tu pedido fue entregado exitosamente. ¡Gracias por tu compra!
+            </div>
+            <button class="btn" onclick="goTo('products')" style="margin-top:20px;">🏠 Volver al menú</button>
+        </div>`;
 }
 
 // ── DASHBOARD REAL ────────────────────────────────────────────
@@ -185,14 +243,12 @@ async function refreshDashboard() {
     try {
         const respuesta = await fetch(BASE + '/dashboard');
         const datos     = await respuesta.json();
-
         const e1 = document.getElementById('statClientes');
         const e2 = document.getElementById('statPendientes');
         const e3 = document.getElementById('statActivos');
         if (e1) e1.textContent = datos.clientes;
         if (e2) e2.textContent = datos.pedidosPendientes;
         if (e3) e3.textContent = datos.pedidosActivos;
-
         const tbody = document.getElementById('bodyActividad');
         if (tbody) {
             if (datos.ultimosPedidos.length === 0) {
@@ -200,22 +256,9 @@ async function refreshDashboard() {
             } else {
                 tbody.innerHTML = datos.ultimosPedidos.map(p => {
                     const fecha = new Date(p.fecha).toLocaleString('es-MX');
-                    const badgeClass = {
-                        'pendiente':   'pendiente',
-                        'confirmado':  'activo',
-                        'en-transito': 'en-transito',
-                        'entregado':   'entregado',
-                        'cancelado':   'cancelado'
-                    }[p.estado] || 'pendiente';
-                    const badgeText = {
-                        'pendiente':   'Pendiente',
-                        'confirmado':  'Confirmado',
-                        'en-transito': 'En tránsito',
-                        'entregado':   'Entregado',
-                        'cancelado':   'Cancelado'
-                    }[p.estado] || p.estado;
-                    return `
-                    <tr>
+                    const badgeClass = { 'pendiente':'pendiente','confirmado':'activo','en-transito':'en-transito','entregado':'entregado','cancelado':'cancelado' }[p.estado] || 'pendiente';
+                    const badgeText  = { 'pendiente':'Pendiente','confirmado':'Confirmado','en-transito':'En tránsito','entregado':'Entregado','cancelado':'Cancelado' }[p.estado] || p.estado;
+                    return `<tr>
                         <td>Pedido #${p.id}</td>
                         <td>${p.cliente_correo || '—'}</td>
                         <td>${fecha}</td>
@@ -224,7 +267,6 @@ async function refreshDashboard() {
                 }).join('');
             }
         }
-
     } catch (error) {
         console.error('refreshDashboard:', error);
     }
@@ -237,42 +279,25 @@ async function cargarPedidosAdmin() {
         const datos     = await respuesta.json();
         const tbody     = document.getElementById('bodyPedidos');
         if (!tbody) return;
-
         if (datos.pedidos.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:16px;">No hay pedidos aún</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">No hay pedidos aún</td></tr>';
             return;
         }
-
         tbody.innerHTML = datos.pedidos.map(p => {
             const items   = JSON.parse(p.items || '[]');
             const resumen = items.map(i => i.name + ' ×' + i.qty).join(', ');
             const fecha   = new Date(p.fecha).toLocaleString('es-MX');
-            const badgeClass = {
-                'pendiente':   'pendiente',
-                'confirmado':  'activo',
-                'en-transito': 'en-transito',
-                'entregado':   'entregado',
-                'cancelado':   'cancelado'
-            }[p.estado] || 'pendiente';
-            const badgeText = {
-                'pendiente':   'Pendiente',
-                'confirmado':  'Confirmado',
-                'en-transito': 'En tránsito',
-                'entregado':   'Entregado',
-                'cancelado':   'Cancelado'
-            }[p.estado] || p.estado;
-
+            const badgeClass = { 'pendiente':'pendiente','confirmado':'activo','en-transito':'en-transito','entregado':'entregado','cancelado':'cancelado' }[p.estado] || 'pendiente';
+            const badgeText  = { 'pendiente':'Pendiente','confirmado':'Confirmado','en-transito':'En tránsito','entregado':'Entregado','cancelado':'Cancelado' }[p.estado] || p.estado;
             const botones = p.estado === 'pendiente'
-                ? `<button class="tbl-btn green"  onclick="actualizarPedido(${p.id},'confirmado')">✅ Confirmar</button>
-                   <button class="tbl-btn red"    onclick="actualizarPedido(${p.id},'cancelado')">✖ Cancelar</button>`
+                ? `<button class="tbl-btn green" onclick="actualizarPedido(${p.id},'confirmado')">✅ Confirmar</button>
+                   <button class="tbl-btn red"   onclick="actualizarPedido(${p.id},'cancelado')">✖ Cancelar</button>`
                 : p.estado === 'confirmado'
                     ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar</button>`
                     : p.estado === 'en-transito'
-                        ? `<button class="tbl-btn amber"  onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
+                        ? `<button class="tbl-btn amber" onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
                         : `<span style="font-size:12px;color:#9ca3af;">Finalizado</span>`;
-
-            return `
-            <tr>
+            return `<tr>
                 <td><strong>#${p.id}</strong></td>
                 <td>${p.cliente_nombre || '—'}<br><span style="font-size:11px;color:#9ca3af;">${p.cliente_correo || ''}</span></td>
                 <td style="font-size:12px;">${resumen}</td>
@@ -282,7 +307,6 @@ async function cargarPedidosAdmin() {
                 <td style="display:flex;gap:4px;flex-wrap:wrap;">${botones}</td>
             </tr>`;
         }).join('');
-
     } catch (error) {
         console.error('cargarPedidosAdmin:', error);
     }
@@ -341,12 +365,10 @@ async function cargarUbicaciones() {
             <td>${p.cliente_nombre || '—'}</td>
             <td><strong>$${p.total}</strong></td>
             <td><span class="badge ${p.estado === 'en-transito' ? 'en-transito' : 'activo'}">${p.estado === 'en-transito' ? 'En tránsito' : 'Confirmado'}</span></td>
-            <td>
-                ${p.estado === 'confirmado'
+            <td>${p.estado === 'confirmado'
             ? `<button class="tbl-btn purple" onclick="actualizarPedido(${p.id},'en-transito')">🚚 Enviar</button>`
             : `<button class="tbl-btn amber"  onclick="actualizarPedido(${p.id},'entregado')">📦 Entregado</button>`
-        }
-            </td>
+        }</td>
         </tr>`).join('');
     } catch (error) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:20px;">Error al cargar</td></tr>';

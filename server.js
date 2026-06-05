@@ -11,26 +11,19 @@ const SALT = 10;
 app.use(cors());
 app.use(bodyParser.json());
 
-// ── Servir archivos estáticos (HTML, CSS, JS) ──
 app.use(express.static(__dirname));
 
-// Ruta principal — sirve el index.html
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-/* ══════════════════════════════════════════════════════════════
-   CONEXIÓN A POSTGRESQL
-══════════════════════════════════════════════════════════════ */
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL ||
         'postgresql://michivery_db_user:vDxyITAgjN9udkpBNUmPaaeo7iUrCPBc@dpg-d8b7s43eo5us73amdsog-a.frankfurt-postgres.render.com/michivery_db',
     ssl: { rejectUnauthorized: false }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   CLIENTES
-══════════════════════════════════════════════════════════════ */
+/* ══ CLIENTES ══ */
 app.post('/registrar', async (req, res) => {
     const { nombre, telefono, direccion, correo, contrasena } = req.body;
     if (!nombre || !telefono || !direccion || !correo || !contrasena)
@@ -84,9 +77,7 @@ app.get('/clientes', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   ADMINISTRADORES
-══════════════════════════════════════════════════════════════ */
+/* ══ ADMINISTRADORES ══ */
 app.post('/registrarAdmin', async (req, res) => {
     const { nombre, telefono, correo, contrasena } = req.body;
     if (!nombre || !telefono || !correo || !contrasena)
@@ -130,9 +121,7 @@ app.post('/loginAdmin', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   PEDIDOS
-══════════════════════════════════════════════════════════════ */
+/* ══ PEDIDOS ══ */
 app.post('/pedido', async (req, res) => {
     const { cliente_id, cliente_nombre, cliente_correo, items, total } = req.body;
     if (!cliente_id || !items || !total)
@@ -159,6 +148,22 @@ app.get('/pedidos', async (req, res) => {
     }
 });
 
+// ── NUEVA RUTA: estado del último pedido de un cliente ──
+app.get('/pedido/cliente/:cliente_id', async (req, res) => {
+    const { cliente_id } = req.params;
+    try {
+        const r = await pool.query(
+            'SELECT * FROM pedidos WHERE cliente_id = $1 ORDER BY fecha DESC LIMIT 1',
+            [cliente_id]
+        );
+        if (r.rows.length === 0) return res.json({ pedido: null });
+        res.json({ pedido: r.rows[0] });
+    } catch (error) {
+        console.error('GET /pedido/cliente:', error.message);
+        res.status(500).json({ mensaje: 'Error al obtener pedido' });
+    }
+});
+
 app.put('/pedido/:id', async (req, res) => {
     const { id }     = req.params;
     const { estado } = req.body;
@@ -173,9 +178,7 @@ app.put('/pedido/:id', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   TICKETS
-══════════════════════════════════════════════════════════════ */
+/* ══ TICKETS ══ */
 app.post('/ticket', async (req, res) => {
     const { cliente_id, cliente_nombre, cliente_correo, asunto, mensaje } = req.body;
     if (!cliente_id || !asunto || !mensaje)
@@ -203,8 +206,8 @@ app.get('/tickets', async (req, res) => {
 });
 
 app.put('/ticket/:id', async (req, res) => {
-    const { id }                  = req.params;
-    const { respuesta, estado }   = req.body;
+    const { id }                = req.params;
+    const { respuesta, estado } = req.body;
     if (!respuesta || !estado)
         return res.status(400).json({ mensaje: 'Respuesta y estado requeridos' });
     try {
@@ -219,9 +222,7 @@ app.put('/ticket/:id', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   PRECIOS
-══════════════════════════════════════════════════════════════ */
+/* ══ PRECIOS ══ */
 app.get('/precios', async (req, res) => {
     try {
         const r = await pool.query('SELECT * FROM precios ORDER BY id');
@@ -247,16 +248,14 @@ app.put('/precios', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   DASHBOARD
-══════════════════════════════════════════════════════════════ */
+/* ══ DASHBOARD ══ */
 app.get('/dashboard', async (req, res) => {
     try {
-        const clientes    = await pool.query('SELECT COUNT(*) FROM clientes');
-        const pendientes  = await pool.query("SELECT COUNT(*) FROM pedidos WHERE estado = 'pendiente'");
-        const activos     = await pool.query("SELECT COUNT(*) FROM pedidos WHERE estado NOT IN ('entregado','cancelado')");
-        const pedidos     = await pool.query('SELECT * FROM pedidos ORDER BY fecha DESC LIMIT 5');
-        const ticketsAb   = await pool.query("SELECT COUNT(*) FROM tickets WHERE estado = 'abierto'");
+        const clientes   = await pool.query('SELECT COUNT(*) FROM clientes');
+        const pendientes = await pool.query("SELECT COUNT(*) FROM pedidos WHERE estado = 'pendiente'");
+        const activos    = await pool.query("SELECT COUNT(*) FROM pedidos WHERE estado NOT IN ('entregado','cancelado')");
+        const pedidos    = await pool.query('SELECT * FROM pedidos ORDER BY fecha DESC LIMIT 5');
+        const ticketsAb  = await pool.query("SELECT COUNT(*) FROM tickets WHERE estado = 'abierto'");
         res.json({
             clientes:          parseInt(clientes.rows[0].count),
             pedidosPendientes: parseInt(pendientes.rows[0].count),
@@ -270,9 +269,6 @@ app.get('/dashboard', async (req, res) => {
     }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   ARRANCAR SERVIDOR
-══════════════════════════════════════════════════════════════ */
 app.listen(3000, () => {
     console.log('Servidor funcionando en puerto 3000');
 });

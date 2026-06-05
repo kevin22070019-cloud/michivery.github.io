@@ -196,6 +196,9 @@
         .modal-box h3 { margin: 0 0 10px; }
         .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
         .modal-actions button { flex: 1; }
+
+
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -412,14 +415,18 @@
     </div>
 
     <!-- ══ ESPERANDO CONFIRMACIÓN DEL ADMIN ══ -->
+    <!-- ══ ESPERANDO CONFIRMACIÓN DEL ADMIN ══ -->
     <div id="esperando" class="screen" style="text-align:center;">
         <div class="waiting-icon">⏳</div>
         <h2>Pedido enviado</h2>
         <div class="msg warning show" style="justify-content:center; margin-bottom:16px;">
             🕐 Tu pedido está en espera de confirmación por el administrador.
         </div>
-        <p style="color:gray; font-size:14px;">Te avisaremos cuando el administrador lo confirme y esté en camino.</p>
-        <button class="btn" onclick="goTo('products')" style="margin-top:20px;">🏠 Volver al menú</button>
+        <p style="color:gray; font-size:14px;">Revisando el estado de tu pedido cada 5 segundos...</p>
+        <div style="margin-top:16px;">
+            <div style="width:40px; height:40px; border:4px solid #e5e7eb; border-top-color:var(--green); border-radius:50%; animation:spin 1s linear infinite; margin:auto;"></div>
+        </div>
+        <button class="btn btn-cancel" onclick="detenerSeguimiento(); goTo('products')" style="margin-top:24px;">🏠 Cancelar y volver al menú</button>
     </div>
 
     <!-- ══ SEGUIMIENTO ══ -->
